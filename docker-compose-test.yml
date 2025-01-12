@@ -1,0 +1,26 @@
+services:
+  redis:
+    image: redis:7.2.1
+    container_name: test-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15.4
+    container_name: test-postgres
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testpassword}
+      POSTGRES_USER: ${POSTGRES_USER:-testuser}
+      POSTGRES_DB: ${POSTGRES_DB:-testdb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:
