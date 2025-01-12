@@ -54,7 +54,10 @@
 ./src/server/utils/errors.ts
 ./src/server/migrations-js/1704988800000-CreateInitialTables.js
 ./src/server/index.ts
+./src/server/controllers/RuleController.ts
 ./src/server/controllers/authController.ts
+./src/server/controllers/CodeReviewController.ts
+./src/server/controllers/RepositoryController.ts
 ./src/server/routes/health.ts
 ./src/server/routes/index.ts
 ./src/server/routes/auth.ts

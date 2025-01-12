@@ -1,34 +1,57 @@
-import { createConnection } from 'typeorm';
-import { User } from '@server/entities/User';
+import { Request, Response } from 'express';
 
-export const createTestUser = async () => {
-  // Add test user creation logic
-  const user = new User();
-  user.email = 'test@example.com';
-  user.password = 'testPass123!';
-  await user.save();
+/**
+ * Mocks an Express Request object.
+ * @param {Partial<Request>} data - Optional custom data to include in the mock request.
+ * @returns {Request} - Mocked Express Request object.
+ */
+export const mockRequest = (data: Partial<Request> = {}): Request => {
+  return {
+    body: {},
+    params: {},
+    query: {},
+    headers: {},
+    ...data,
+  } as Request;
 };
 
-export const cleanupTestUser = async () => {
-  // Add cleanup logic
-  await User.delete({ email: 'test@example.com' });
+/**
+ * Mocks an Express Response object.
+ * @returns {Response} - Mocked Express Response object.
+ */
+export const mockResponse = (): Response => {
+  const res = {} as Response;
+
+  res.status = jest.fn().mockReturnValue(res);
+  res.json = jest.fn().mockReturnValue(res);
+  res.send = jest.fn().mockReturnValue(res);
+  res.end = jest.fn().mockReturnValue(res);
+
+  return res;
 };
 
-export const setupTestDatabase = async () => {
-  // Add database setup logic
-  const connection = await createConnection({
-    type: 'postgres',
-    host: process.env.POSTGRES_HOST,
-    port: parseInt(process.env.POSTGRES_PORT || '5432'),
-    username: process.env.POSTGRES_USER,
-    password: process.env.POSTGRES_PASSWORD,
-    database: process.env.POSTGRES_DB,
-    entities: [User], // Add other entities
-    synchronize: true
-  });
-  return connection;
+/**
+ * Mock a middleware function.
+ * @param {(req: Request, res: Response, next: Function) => void} fn - Middleware function to wrap.
+ * @returns {jest.MockedFunction} - A Jest mock function for the middleware.
+ */
+export const mockMiddleware = (
+  fn: (req: Request, res: Response, next: Function) => void
+): jest.MockedFunction<typeof fn> => jest.fn(fn);
+
+/**
+ * Initializes the database for testing.
+ * This can include creating a connection or running migrations.
+ */
+export const initTestDatabase = async (): Promise<void> => {
+  console.log('Initializing test database...');
+  // Add your database setup logic here
 };
 
-export const cleanupTestDatabase = async () => {
-  // Add database cleanup logic
+/**
+ * Closes the database connection after testing.
+ */
+export const closeTestDatabase = async (): Promise<void> => {
+  console.log('Closing test database...');
+  // Add your database teardown logic here
 };
