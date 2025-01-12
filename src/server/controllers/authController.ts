@@ -1,184 +1,182 @@
-import { Request, Response } from 'express';
-import { AppDataSource } from '../config/typeorm.config';
-import { User, UserRole } from '../entities/User';
-import { validate } from 'class-validator';
-import bcrypt from 'bcrypt';
+import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import { AppDataSource } from '../config/data-source';
+import { User } from '../entities/User.mjs';
 import { asyncHandler } from '../middleware/asyncHandler';
+import { ValidationError, AuthenticationError } from '../utils/errors';
+import { loggerWrapper as logger } from '../config/logger';
 import { GitHubAuthService } from '../services/githubAuth';
+import { UserRole } from '../entities/User.mjs';
 
-export class AuthController {
-    private static userRepository = AppDataSource.getRepository(User);
+const userRepository = AppDataSource.getRepository(User);
 
-    static register = asyncHandler(async (req: Request, res: Response) => {
-        const { name, email, password } = req.body;
+class AuthController {
+  /**
+   * Register a new user
+   * @route POST /api/auth/register
+   */
+  static register = asyncHandler(async (req: Request, res: Response) => {
+    const { name, email, password } = req.body;
 
-        // Create user instance for validation
-        const user = new User();
-        Object.assign(user, {
-            name,
-            email,
-            password,
-            role: UserRole.USER
-        });
+    // Validate input
+    if (!name || !email || !password) {
+      throw new ValidationError('Name, email, and password are required', {
+        name: !name ? ['Name is required'] : [],
+        email: !email ? ['Email is required'] : [],
+        password: !password ? ['Password is required'] : [],
+      });
+    }
 
-        // Validate user data
-        const errors = await validate(user);
-        if (errors.length > 0) {
-            return res.status(400).json({
-                message: 'Validation failed',
-                errors: errors.map(error => ({
-                    property: error.property,
-                    constraints: error.constraints
-                }))
-            });
-        }
+    // Check if user already exists
+    const existingUser = await userRepository.findOne({ where: { email } });
+    if (existingUser) {
+      throw new ValidationError('User with this email already exists', {
+        email: ['Email already in use'],
+      });
+    }
 
-        // Check if user already exists
-        const existingUser = await this.userRepository.findOne({ where: { email: email.toLowerCase() } });
-        if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
-        user.password = hashedPassword;
+    // Create new user
+    const newUser = new User();
+    newUser.name = name;
+    newUser.email = email;
+    newUser.passwordHash = hashedPassword;
+    newUser.role = UserRole.USER;
+    newUser.isActive = true;
 
-        // Save user
-        await this.userRepository.save(user);
+    const user = await userRepository.save(newUser);
 
-        // Generate JWT token
-        const token = jwt.sign(
-            { userId: user.id, role: user.role },
-            process.env.JWT_SECRET || 'your-fallback-secret',
-            { expiresIn: '24h' }
-        );
-
-        return res.status(201).json({
-            message: 'User registered successfully',
-            user: user.toJSON(), // Uses the safe toJSON method
-            token
-        });
+    // Generate JWT token
+    const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET!, {
+      expiresIn: '24h',
     });
 
-    static login = asyncHandler(async (req: Request, res: Response) => {
-        const { email, password } = req.body;
+    logger.info(`New user registered: ${user.email}`);
 
-        if (!email || !password) {
-            return res.status(400).json({ message: 'Email and password are required' });
-        }
+    res.status(201).json({
+      status: 'success',
+      data: {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+        token,
+      },
+    });
+  });
 
-        // Find user
-        const user = await this.userRepository.findOne({ 
-            where: { 
-                email: email.toLowerCase(),
-                isActive: true
-            } 
-        });
+  /**
+   * Login user
+   * @route POST /api/auth/login
+   */
+  static login = asyncHandler(async (req: Request, res: Response) => {
+    const { email, password } = req.body;
 
-        if (!user) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
+    // Validate input
+    if (!email || !password) {
+      throw new ValidationError('Email and password are required', {
+        email: !email ? ['Email is required'] : [],
+        password: !password ? ['Password is required'] : [],
+      });
+    }
 
-        // Verify password
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        if (!isValidPassword) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
+    // Find user
+    const user = await userRepository.findOne({ where: { email } });
+    if (!user) {
+      throw new AuthenticationError('Invalid credentials');
+    }
 
-        // Update last login
-        user.lastLoginAt = new Date();
-        await this.userRepository.save(user);
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    if (!isValidPassword) {
+      throw new AuthenticationError('Invalid credentials');
+    }
 
-        // Generate JWT token
-        const token = jwt.sign(
-            { userId: user.id, role: user.role },
-            process.env.JWT_SECRET || 'your-fallback-secret',
-            { expiresIn: '24h' }
-        );
-
-        return res.json({
-            message: 'Login successful',
-            user: user.toJSON(), // Uses the safe toJSON method
-            token
-        });
+    // Generate JWT token
+    const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET!, {
+      expiresIn: '24h',
     });
 
-    static refreshToken = asyncHandler(async (req: Request, res: Response) => {
-        const { token } = req.body;
-        
-        try {
-            const decoded = jwt.verify(
-                token, 
-                process.env.JWT_SECRET || 'your-fallback-secret'
-            ) as { userId: string; role: UserRole };
+    logger.info(`User logged in: ${user.email}`);
 
-            const user = await this.userRepository.findOne({ 
-                where: { 
-                    id: decoded.userId,
-                    isActive: true
-                } 
-            });
+    res.json({
+      status: 'success',
+      data: {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+        token,
+      },
+    });
+  });
 
-            if (!user) {
-                return res.status(401).json({ message: 'User not found or inactive' });
-            }
-            
-            const newToken = jwt.sign(
-                { userId: user.id, role: user.role },
-                process.env.JWT_SECRET || 'your-fallback-secret',
-                { expiresIn: '24h' }
-            );
-
-            return res.json({
-                token: newToken,
-                user: user.toJSON() // Uses the safe toJSON method
-            });
-        } catch (error) {
-            return res.status(401).json({ message: 'Invalid token' });
-        }
+  /**
+   * Get current user profile
+   * @route GET /api/auth/profile
+   */
+  static getProfile = asyncHandler(async (req: Request, res: Response) => {
+    const user = await userRepository.findOne({
+      where: { id: req.user?.id },
+      select: ['id', 'name', 'email', 'role', 'createdAt', 'avatarUrl'],
     });
 
-    static getProfile = asyncHandler(async (req: Request, res: Response) => {
-        // @ts-ignore - req.user is set by auth middleware
-        const userId = req.user?.id;
-        if (!userId) {
-            return res.status(401).json({ message: 'Not authenticated' });
-        }
+    if (!user) {
+      throw new AuthenticationError('User not found');
+    }
 
-        const user = await this.userRepository.findOne({ 
-            where: { 
-                id: userId,
-                isActive: true
-            } 
-        });
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found or inactive' });
-        }
-
-        return res.json(user.toJSON()); // Uses the safe toJSON method
+    res.json({
+      status: 'success',
+      data: { user },
     });
+  });
 
-    static githubCallback = asyncHandler(async (req: Request, res: Response) => {
-        const { code } = req.query;
-    
-        if (!code || typeof code !== 'string') {
-            return res.status(400).json({ message: 'GitHub authorization code is required' });
-        }
-    
-        try {
-            const authResult = await GitHubAuthService.handleOAuthCallback(code);
-            
-            return res.json({
-                message: 'GitHub authentication successful',
-                ...authResult
-            });
-        } catch (error) {
-            return res.status(401).json({ 
-                message: 'GitHub authentication failed',
-                error: error instanceof Error ? error.message : 'Unknown error'
-            });
-        }
-    });
+  /**
+   * GitHub OAuth callback
+   * @route GET /api/auth/github/callback
+   */
+  static githubCallback = asyncHandler(async (req: Request, res: Response) => {
+    const { code } = req.query;
+
+    if (!code || typeof code !== 'string') {
+      throw new ValidationError('GitHub authorization code is required', {
+        code: ['Valid authorization code is required'],
+      });
+    }
+
+    try {
+      const { user, token } = await GitHubAuthService.handleOAuthCallback(code);
+
+      // For security, redirect to the frontend with the token
+      const frontendURL = process.env.FRONTEND_URL || 'http://localhost:5173';
+      res.redirect(`${frontendURL}/auth/github/callback?token=${token}`);
+    } catch (error) {
+      logger.error('GitHub authentication failed:', error);
+      throw new AuthenticationError('GitHub authentication failed');
+    }
+  });
+
+  /**
+   * Initiate GitHub OAuth flow
+   * @route GET /api/auth/github
+   */
+  static initiateGitHubAuth = asyncHandler(async (req: Request, res: Response) => {
+    const authUrl =
+      `https://github.com/login/oauth/authorize?` +
+      `client_id=${process.env.GITHUB_CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(process.env.API_URL + '/api/auth/github/callback')}` +
+      `&scope=user:email`;
+
+    res.redirect(authUrl);
+  });
 }
+
+export { AuthController };

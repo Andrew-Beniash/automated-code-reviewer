@@ -9,6 +9,17 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true
   },
-  "include": ["vite.config.ts", "src/server/**/*.ts"],
+  "include": [
+    "vite.config.ts",
+    "src/server/**/*.ts",
+    "src/server/migrations/1704988800000-CreateInitialTables.ts",
+    "src/server/migrations/1704988800000-InitialTables.ts",
+    "src/server/config/typeorm.config.js",
+    "src/server/entities/CodeReview.mts",
+    "src/server/entities/Repository.mts",
+    "src/server/entities/ReviewFinding.mts",
+    "src/server/entities/Rule.mts",
+    "src/server/entities/User.mts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

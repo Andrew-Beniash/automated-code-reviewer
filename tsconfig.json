@@ -1,35 +1,80 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "node",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "baseUrl": ".",
+    // Target and Module settings
+    "target": "ES2020", // Specify ECMAScript target version
+    "module": "ESNext", // Use ESNext for latest module features
+    "moduleResolution": "node", // Use Node.js style module resolution
+    "esModuleInterop": true, // Enable interoperability between CommonJS and ES Modules
+
+    // Path and Directory settings
+    "rootDir": "./src", // Specify the root directory of input files
+    "outDir": "./dist", // Redirect output structure to this directory
+    "baseUrl": "./", // Base directory to resolve non-relative module names
     "paths": {
-      "@/*": ["./src/*"],
-      "@client/*": ["./src/client/*"],
-      "@server/*": ["./src/server/*"],
-      "@shared/*": ["./src/shared/*"]
+      // Path mapping for module aliases
+      "@/*": ["src/*"],
+      "@server/*": ["src/server/*"],
+      "@client/*": ["src/client/*"],
+      "@shared/*": ["src/shared/*"]
     },
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "strictPropertyInitialization": false
+
+    // TypeScript Features
+    "experimentalDecorators": true, // Enable experimental support for decorators
+    "emitDecoratorMetadata": true, // Emit design-type metadata for decorated declarations
+    "strictPropertyInitialization": false, // Disable strict property initialization (needed for TypeORM)
+
+    // Type Checking
+    "strict": true, // Enable all strict type-checking options
+    "noImplicitAny": true, // Raise error on expressions and declarations with implied 'any' type
+    "strictNullChecks": true, // Enable strict null checks
+    "noUnusedLocals": true, // Report errors on unused locals
+    "noUnusedParameters": true, // Report errors on unused parameters
+
+    // Module Resolution
+    "resolveJsonModule": true, // Include modules imported with .json extension
+    "allowJs": true, // Allow JavaScript files to be compiled
+    "checkJs": false, // Don't report errors in JavaScript files
+
+    // Source Maps and Declaration Files
+    "sourceMap": true, // Generate corresponding .map files
+    "declaration": true, // Generate corresponding .d.ts files
+
+    // Advanced Options
+    "skipLibCheck": true, // Skip type checking of declaration files
+    "forceConsistentCasingInFileNames": true, // Ensure consistent casing in file names
+
+    // JSX Support
+    "jsx": "react-jsx", // Support JSX in .tsx files
+
+    // Library Support
+    "lib": ["ES2020", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+
+  // File Inclusion/Exclusion
+  "include": [
+    "src/**/*.ts", // Include all TypeScript files in src
+    "src/**/*.tsx", // Include all React component files
+    "src/**/*.js", // Include all JavaScript files
+    "src/**/*.jsx", // Include all React JavaScript files
+    "src/server/migrations-js/**/*.js", // Explicitly include migration files
+    "src/server/entities/CodeReview.mts",
+    "src/server/entities/Repository.mts",
+    "src/server/entities/ReviewFinding.mts",
+    "src/server/entities/Rule.mts",
+    "src/server/entities/User.mts"
+  ],
+  "exclude": [
+    "node_modules", // Exclude node_modules directory
+    "dist", // Exclude output directory
+    "build", // Exclude build directory
+    "**/*.spec.ts", // Exclude test files
+    "**/*.test.ts" // Exclude test files
+  ],
+
+  // References for Project References
+  "references": [
+    {
+      "path": "./tsconfig.node.json" // Reference to Node-specific configuration
+    }
+  ]
 }

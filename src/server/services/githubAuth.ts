@@ -1,147 +1,167 @@
-// File path: src/server/services/githubAuth.ts
-
 import axios from 'axios';
-import { AppDataSource } from '../config/typeorm.config';
-import { User } from '../entities/User';
+import { DataSource, DeepPartial } from 'typeorm';
+import { User } from '../entities/User.mjs';
 import jwt from 'jsonwebtoken';
+import { loggerWrapper as logger } from '../config/logger';
+import bcrypt from 'bcrypt';
 
+// Interface definitions
 interface GitHubTokenResponse {
-    access_token: string;
-    token_type: string;
-    scope: string;
+  access_token: string;
+  token_type: string;
+  scope: string;
 }
 
 interface GitHubUserData {
-    id: number;
-    email: string;
-    name: string;
-    avatar_url: string;
+  id: number;
+  email: string;
+  name: string;
+  avatar_url: string;
+}
+
+interface AuthResponse {
+  user: Omit<User, 'passwordHash'>;
+  token: string;
 }
 
 export class GitHubAuthService {
-    private static readonly GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
-    private static readonly GITHUB_USER_URL = 'https://api.github.com/user';
-    private static readonly userRepository = AppDataSource.getRepository(User);
+  private static readonly GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
+  private static readonly GITHUB_USER_URL = 'https://api.github.com/user';
+  private static dataSource: DataSource;
 
-    /**
-     * Exchange the authorization code for an access token
-     */
-    private static async getAccessToken(code: string): Promise<string> {
-        const response = await axios.post<GitHubTokenResponse>(
-            this.GITHUB_TOKEN_URL,
-            {
-                client_id: process.env.GITHUB_CLIENT_ID,
-                client_secret: process.env.GITHUB_CLIENT_SECRET,
-                code
-            },
-            {
-                headers: {
-                    Accept: 'application/json'
-                }
-            }
-        );
+  static initialize(dataSource: DataSource) {
+    this.dataSource = dataSource;
+  }
 
-        if (!response.data.access_token) {
-            throw new Error('Failed to get access token from GitHub');
+  private static async getAccessToken(code: string): Promise<string> {
+    try {
+      const response = await axios.post<GitHubTokenResponse>(
+        this.GITHUB_TOKEN_URL,
+        {
+          client_id: process.env.GITHUB_CLIENT_ID,
+          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          code,
+        },
+        {
+          headers: {
+            Accept: 'application/json',
+          },
         }
+      );
 
-        return response.data.access_token;
+      if (!response.data.access_token) {
+        throw new Error('Failed to get access token from GitHub');
+      }
+
+      return response.data.access_token;
+    } catch (error) {
+      logger.error('Failed to get GitHub access token', { error });
+      throw new Error('Failed to authenticate with GitHub');
     }
+  }
 
-    /**
-     * Fetch user data from GitHub using the access token
-     */
-    private static async getGitHubUserData(accessToken: string): Promise<GitHubUserData> {
-        const response = await axios.get<GitHubUserData>(
-            this.GITHUB_USER_URL,
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`
-                }
-            }
-        );
+  private static async getGitHubUserData(accessToken: string): Promise<GitHubUserData> {
+    try {
+      const response = await axios.get<GitHubUserData>(this.GITHUB_USER_URL, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
 
-        if (!response.data.id) {
-            throw new Error('Failed to get user data from GitHub');
-        }
+      if (!response.data.id) {
+        throw new Error('Failed to get user data from GitHub');
+      }
 
-        return response.data;
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to get GitHub user data', { error });
+      throw new Error('Failed to fetch user data from GitHub');
     }
+  }
 
-    /**
-     * Create or update user with GitHub data
-     */
-    private static async upsertUser(githubData: GitHubUserData): Promise<User> {
-        // Try to find existing user by GitHub ID
-        let user = await this.userRepository.findOne({
-            where: { githubId: githubData.id }
+  private static async upsertUser(githubData: GitHubUserData): Promise<User> {
+    const userRepository = this.dataSource.getRepository(User);
+
+    try {
+      // Try to find existing user by GitHub ID
+      let user = await userRepository.findOne({
+        where: { githubId: githubData.id.toString() },
+      });
+
+      if (!user && githubData.email) {
+        // If no user found by GitHub ID, try to find by email
+        user = await userRepository.findOne({
+          where: { email: githubData.email.toLowerCase() },
         });
+      }
 
-        if (!user && githubData.email) {
-            // If no user found by GitHub ID, try to find by email
-            user = await this.userRepository.findOne({
-                where: { email: githubData.email.toLowerCase() }
-            });
-        }
+      if (user) {
+        // Update existing user
+        user.githubId = githubData.id.toString();
+        user.avatarUrl = githubData.avatar_url;
+        if (githubData.name) user.name = githubData.name;
 
-        if (user) {
-            // Update existing user
-            user.githubId = githubData.id;
-            user.avatarUrl = githubData.avatar_url;
-            if (githubData.name) user.name = githubData.name;
-            
-            return await this.userRepository.save(user);
-        }
+        return await userRepository.save(user);
+      }
 
-        // Create new user
-        const newUser = this.userRepository.create({
-            email: githubData.email,
-            name: githubData.name || 'GitHub User',
-            githubId: githubData.id,
-            avatarUrl: githubData.avatar_url,
-            // Generate a random password for GitHub users
-            password: Math.random().toString(36).slice(-8),
-            isActive: true
-        });
+      // Generate a temporary password and hash it
+      const tempPassword = await this.generateTempPassword();
+      const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-        return await this.userRepository.save(newUser);
+      // Create new user
+      const userData: DeepPartial<User> = {
+        email: githubData.email.toLowerCase(),
+        name: githubData.name || 'GitHub User',
+        githubId: githubData.id.toString(),
+        avatarUrl: githubData.avatar_url,
+        passwordHash: hashedPassword,
+        isActive: true,
+      };
+
+      const newUser = userRepository.create(userData);
+      return await userRepository.save(newUser);
+    } catch (error) {
+      logger.error('Failed to upsert user', { error });
+      throw new Error('Failed to create or update user');
+    }
+  }
+
+  private static async generateTempPassword(): Promise<string> {
+    const length = 16;
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    const array = new Uint8Array(length);
+    crypto.getRandomValues(array);
+    return Array.from(array)
+      .map((x) => chars.charAt(x % chars.length))
+      .join('');
+  }
+
+  private static generateToken(user: User): string {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET is not configured');
     }
 
-    /**
-     * Generate JWT token for the user
-     */
-    private static generateToken(user: User): string {
-        return jwt.sign(
-            { userId: user.id, role: user.role },
-            process.env.JWT_SECRET || 'your-fallback-secret',
-            { expiresIn: '24h' }
-        );
+    return jwt.sign({ userId: user.id, role: user.role }, secret, { expiresIn: '24h' });
+  }
+
+  static async handleOAuthCallback(code: string): Promise<AuthResponse> {
+    try {
+      const accessToken = await this.getAccessToken(code);
+      const githubUserData = await this.getGitHubUserData(accessToken);
+      const user = await this.upsertUser(githubUserData);
+      const token = this.generateToken(user);
+
+      // Omit passwordHash from the response
+      const { passwordHash, ...userWithoutPassword } = user;
+
+      return {
+        user: userWithoutPassword,
+        token,
+      };
+    } catch (error) {
+      logger.error('GitHub OAuth error:', { error });
+      throw new Error('Failed to authenticate with GitHub');
     }
-
-    /**
-     * Complete GitHub OAuth flow
-     */
-    static async handleOAuthCallback(code: string) {
-        try {
-            // 1. Exchange code for access token
-            const accessToken = await this.getAccessToken(code);
-
-            // 2. Fetch user data from GitHub
-            const githubUserData = await this.getGitHubUserData(accessToken);
-
-            // 3. Create or update user with GitHub data
-            const user = await this.upsertUser(githubUserData);
-
-            // 4. Generate JWT token
-            const token = this.generateToken(user);
-
-            return {
-                user: user.toJSON(),
-                token
-            };
-        } catch (error) {
-            console.error('GitHub OAuth error:', error);
-            throw new Error('Failed to authenticate with GitHub');
-        }
-    }
+  }
 }

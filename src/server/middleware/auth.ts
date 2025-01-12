@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { getRepository } from 'typeorm';
-import { User, UserRole } from '../entities/User';
+import { User, UserRole } from '../entities/User.mjs';
 import { AuthenticationError } from '../utils/errors';
 import { loggerWrapper as logger } from '../config/logger';
 
@@ -69,7 +69,7 @@ export const requireRole = (...roles: UserRole[]) => {
 
 const extractToken = (req: Request): string | null => {
   const authHeader = req.headers.authorization;
-  
+
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authHeader.substring(7);
   }
