@@ -72,6 +72,63 @@ class AuthController {
   });
 
   /**
+   * Refresh JWT token
+   * @route POST /api/auth/refresh-token
+   */
+  static refreshToken = asyncHandler(async (req: Request, res: Response) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      throw new ValidationError('Refresh token is required', {
+        refreshToken: ['Refresh token is required'],
+      });
+    }
+
+    try {
+      // Verify the refresh token
+      const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as {
+        userId: string;
+        role: UserRole;
+      };
+
+      // Find the user
+      const user = await userRepository.findOne({
+        where: { id: decoded.userId },
+      });
+
+      if (!user) {
+        throw new AuthenticationError('User not found');
+      }
+
+      // Generate new access token
+      const newAccessToken = jwt.sign(
+        { userId: user.id, role: user.role },
+        process.env.JWT_SECRET!,
+        { expiresIn: '24h' }
+      );
+
+      // Generate new refresh token
+      const newRefreshToken = jwt.sign(
+        { userId: user.id, role: user.role },
+        process.env.JWT_REFRESH_SECRET!,
+        { expiresIn: '7d' }
+      );
+
+      logger.info(`Token refreshed for user: ${user.email}`);
+
+      res.json({
+        status: 'success',
+        data: {
+          accessToken: newAccessToken,
+          refreshToken: newRefreshToken,
+        },
+      });
+    } catch (error) {
+      throw new AuthenticationError('Invalid refresh token');
+    }
+  });
+
+  /**
    * Login user
    * @route POST /api/auth/login
    */
