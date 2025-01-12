@@ -108,3 +108,8 @@ ehthumbs_vista.db
 
 # TypeORM
 ormconfig.json
+
+
+/data/mongodb/diagnostic.data
+*.0000000002
+/data/mongodb

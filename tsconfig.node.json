@@ -5,7 +5,9 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
-    "strict": true
+    "strict": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true
   },
   "include": ["vite.config.ts", "src/server/**/*.ts"],
   "exclude": ["node_modules", "dist"]
